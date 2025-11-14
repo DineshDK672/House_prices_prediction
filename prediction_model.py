@@ -1,3 +1,7 @@
+from sklearn.linear_model import Lasso
+from sklearn.metrics import mean_squared_error
+import xgboost as xgb
+from sklearn.model_selection import GridSearchCV
 import warnings
 import pandas as pd
 import numpy as np
@@ -8,6 +12,7 @@ warnings.filterwarnings('ignore')
 # Loading Dataset
 train = pd.read_csv("train.csv")
 test = pd.read_csv("test.csv")
+
 
 # Removing outliers in 'GrLivArea'
 train.drop(train[train['GrLivArea'] > 4000].index, inplace=True)
@@ -84,7 +89,7 @@ alldata["Fence"] = alldata["Fence"].map(
 
 # Encoding data
 alldata["CentralAir"] = (alldata["CentralAir"] == "Y") * 1.0
-varst = np.array(['MSSubClass', 'LotConfig', 'Neighborhood', 'Condition1',
+varst = np.array(['MSSubClass', 'LotConfig', 'Condition1',
                  'BldgType', 'HouseStyle', 'RoofStyle', 'Foundation', 'SaleCondition'])
 
 for x in varst:
@@ -144,6 +149,7 @@ neighborhood_map = {"MeadowV": 0, "IDOTRR": 0, "BrDale": 0, "OldTown": 0, "Edwar
                     "SawyerW": 2, "Gilbert": 2, "NWAmes": 2, "Blmngtn": 2, "CollgCr": 2, "ClearCr": 2, "Crawfor": 2, "Veenker": 3, "Somerst": 3, "Timber": 3, "StoneBr": 4, "NoRidge": 4, "NridgHt": 4}
 
 alldata['NeighborhoodBin'] = alldata['Neighborhood'].map(neighborhood_map)
+
 
 # Split the data into train and test
 train_new = alldata[alldata['SalePrice'].notnull()]
@@ -264,24 +270,19 @@ def munge_onehot(df):
     return onehot_df
 
 
-# Create one-hot features
-onehot_df = munge_onehot(train)
-
-neighborhood_train = pd.DataFrame(index=train_new.shape)
-neighborhood_train['NeighborhoodBin'] = train_new['NeighborhoodBin']
-neighborhood_test = pd.DataFrame(index=test_new.shape)
-neighborhood_test['NeighborhoodBin'] = test_new['NeighborhoodBin']
-
-onehot_df = onehot(onehot_df, neighborhood_train, 'NeighborhoodBin', None)
-
 # Adding one hot features to train
+onehot_df = munge_onehot(train)
 train_new = train_new.join(onehot_df)
 
 # Adding one hot features to test
 onehot_df_te = munge_onehot(test)
-onehot_df_te = onehot(onehot_df_te, neighborhood_test, "NeighborhoodBin", None)
 test_new = test_new.join(onehot_df_te)
 
+# Encoding categorical columns
+cat_cols = train_new.select_dtypes(include=['object', 'category']).columns
+
+train_new = pd.get_dummies(train_new, columns=cat_cols)
+test_new = pd.get_dummies(test_new, columns=cat_cols)
 print(train_new.shape, test_new.shape)
 
 # Dropping some columns to standardize columns between test and train data
@@ -290,8 +291,53 @@ cols_to_keep = [col for col in cols if col in train_new.columns]
 test_new = test_new[cols_to_keep]
 cols_to_keep += ['SalePrice']
 train_new = train_new[cols_to_keep]
+test_new = test_new.iloc[7:]
 print(train_new.shape, test_new.shape)
 
 # Transforming target variable
 label_df = pd.DataFrame(index=train_new.index, columns=['SalePrice'])
 label_df['SalePrice'] = np.log(train['SalePrice'])
+train_new = train_new.drop(columns=['SalePrice'])
+
+# Findind null values in label after transformation and cleaning the train data
+null_row_indices = label_df[label_df.isnull().any(axis=1)].index.to_list(
+)
+label_df = label_df.drop(null_row_indices)
+train_new = train_new.drop(null_row_indices)
+
+print(len(test_new.columns[test_new.isnull().any()].to_list()))
+
+# Model Training and Evaluation
+
+
+def rmse(y_test, y_pred):
+    return np.sqrt(mean_squared_error(y_test, y_pred))
+
+
+# XGBoost Model
+regrXGB = xgb.XGBRegressor(colsample_bytree=0.2,
+                           gamma=0.0,
+                           learning_rate=0.05,
+                           max_depth=6,
+                           min_child_weight=1.5,
+                           n_estimators=7200,
+                           reg_alpha=0.9,
+                           reg_lambda=0.6,
+                           subsample=0.2,
+                           seed=42,
+                           silent=1,
+                           enable_categorical=True)
+
+regrXGB.fit(train_new, label_df)
+y_pred = regrXGB.predict(test_new)
+y_test = label_df
+print("XGBoost score on testset: ", rmse(y_test, y_pred))
+
+
+# # Lasso Model
+# best_alpha = 0.00099
+# regrL = Lasso(alpha=best_alpha, max_iter=50000)
+# regrL.fit(train_new, label_df)
+# y_pred = regrL.predict(test_new)
+# y_test = label_df
+# print("Lasso score on test set: ", rmse(y_test, y_pred))
