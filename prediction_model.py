@@ -1,11 +1,12 @@
+from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_squared_error
 import xgboost as xgb
-from sklearn.model_selection import GridSearchCV
 import warnings
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import cross_val_score
 
 warnings.filterwarnings('ignore')
 
@@ -185,100 +186,6 @@ for i, col in enumerate(numeric_features):
 
 
 # One-hot encoding for categorical features
-
-
-def onehot(onehot_df, df, column_name, fill_na):
-    onehot_df[column_name] = df[column_name]
-    if fill_na is not None:
-        onehot_df[column_name].fillna(fill_na, inplace=True)
-
-    dummies = pd.get_dummies(
-        onehot_df[column_name], prefix="_"+column_name, dtype=float)
-    onehot_df = onehot_df.join(dummies)
-    onehot_df = onehot_df.drop([column_name], axis=1)
-    return onehot_df
-
-
-def munge_onehot(df):
-    onehot_df = pd.DataFrame(index=df.index)
-
-    onehot_df = onehot(onehot_df, df, "MSSubClass", None)
-    onehot_df = onehot(onehot_df, df, "MSZoning", "RL")
-    onehot_df = onehot(onehot_df, df, "LotConfig", None)
-    onehot_df = onehot(onehot_df, df, "Neighborhood", None)
-    onehot_df = onehot(onehot_df, df, "Condition1", None)
-    onehot_df = onehot(onehot_df, df, "BldgType", None)
-    onehot_df = onehot(onehot_df, df, "HouseStyle", None)
-    onehot_df = onehot(onehot_df, df, "RoofStyle", None)
-    onehot_df = onehot(onehot_df, df, "Exterior1st", "VinylSd")
-    onehot_df = onehot(onehot_df, df, "Exterior2nd", "VinylSd")
-    onehot_df = onehot(onehot_df, df, "Foundation", None)
-    onehot_df = onehot(onehot_df, df, "SaleType", "WD")
-    onehot_df = onehot(onehot_df, df, "SaleCondition", "Normal")
-
-    # Fill in missing MasVnrType for rows that do have a MasVnrArea.
-    temp_df = df[["MasVnrType", "MasVnrArea"]].copy()
-    idx = (df["MasVnrArea"] != 0) & (
-        (df["MasVnrType"] == "None") | (df["MasVnrType"].isnull()))
-    temp_df.loc[idx, "MasVnrType"] = "BrkFace"
-    onehot_df = onehot(onehot_df, temp_df, "MasVnrType", "None")
-
-    onehot_df = onehot(onehot_df, df, "LotShape", None)
-    onehot_df = onehot(onehot_df, df, "LandContour", None)
-    onehot_df = onehot(onehot_df, df, "LandSlope", None)
-    onehot_df = onehot(onehot_df, df, "Electrical", "SBrkr")
-    onehot_df = onehot(onehot_df, df, "GarageType", "None")
-    onehot_df = onehot(onehot_df, df, "PavedDrive", None)
-    onehot_df = onehot(onehot_df, df, "MiscFeature", "None")
-    onehot_df = onehot(onehot_df, df, "Street", None)
-    onehot_df = onehot(onehot_df, df, "Alley", "None")
-    onehot_df = onehot(onehot_df, df, "Condition2", None)
-    onehot_df = onehot(onehot_df, df, "RoofMatl", None)
-    onehot_df = onehot(onehot_df, df, "Heating", None)
-
-    # we'll have these as numerical variables too
-    onehot_df = onehot(onehot_df, df, "ExterQual", "None")
-    onehot_df = onehot(onehot_df, df, "ExterCond", "None")
-    onehot_df = onehot(onehot_df, df, "BsmtQual", "None")
-    onehot_df = onehot(onehot_df, df, "BsmtCond", "None")
-    onehot_df = onehot(onehot_df, df, "HeatingQC", "None")
-    onehot_df = onehot(onehot_df, df, "KitchenQual", "TA")
-    onehot_df = onehot(onehot_df, df, "FireplaceQu", "None")
-    onehot_df = onehot(onehot_df, df, "GarageQual", "None")
-    onehot_df = onehot(onehot_df, df, "GarageCond", "None")
-    onehot_df = onehot(onehot_df, df, "PoolQC", "None")
-    onehot_df = onehot(onehot_df, df, "BsmtExposure", "None")
-    onehot_df = onehot(onehot_df, df, "BsmtFinType1", "None")
-    onehot_df = onehot(onehot_df, df, "BsmtFinType2", "None")
-    onehot_df = onehot(onehot_df, df, "Functional", "Typ")
-    onehot_df = onehot(onehot_df, df, "GarageFinish", "None")
-    onehot_df = onehot(onehot_df, df, "Fence", "None")
-    onehot_df = onehot(onehot_df, df, "MoSold", None)
-
-    # Divide  the years between 1871 and 2010 into slices of 20 years
-    year_map = pd.concat(pd.Series(
-        "YearBin" + str(i+1), index=range(1871+i*20, 1891+i*20)) for i in range(0, 7))
-    yearbin_df = pd.DataFrame(index=df.index)
-    yearbin_df["GarageYrBltBin"] = df.GarageYrBlt.map(year_map)
-    yearbin_df["GarageYrBltBin"].fillna("NoGarage", inplace=True)
-    yearbin_df["YearBuiltBin"] = df.YearBuilt.map(year_map)
-    yearbin_df["YearRemodAddBin"] = df.YearRemodAdd.map(year_map)
-
-    onehot_df = onehot(onehot_df, yearbin_df, "GarageYrBltBin", None)
-    onehot_df = onehot(onehot_df, yearbin_df, "YearBuiltBin", None)
-    onehot_df = onehot(onehot_df, yearbin_df, "YearRemodAddBin", None)
-    return onehot_df
-
-
-# Adding one hot features to train
-onehot_df = munge_onehot(train)
-train_new = train_new.join(onehot_df)
-
-# Adding one hot features to test
-onehot_df_te = munge_onehot(test)
-test_new = test_new.join(onehot_df_te)
-
-# Encoding categorical columns
 cat_cols = train_new.select_dtypes(include=['object', 'category']).columns
 
 train_new = pd.get_dummies(train_new, columns=cat_cols)
@@ -305,7 +212,6 @@ null_row_indices = label_df[label_df.isnull().any(axis=1)].index.to_list(
 label_df = label_df.drop(null_row_indices)
 train_new = train_new.drop(null_row_indices)
 
-print(len(test_new.columns[test_new.isnull().any()].to_list()))
 
 # Model Training and Evaluation
 
@@ -315,29 +221,65 @@ def rmse(y_test, y_pred):
 
 
 # XGBoost Model
-regrXGB = xgb.XGBRegressor(colsample_bytree=0.2,
-                           gamma=0.0,
-                           learning_rate=0.05,
-                           max_depth=6,
-                           min_child_weight=1.5,
-                           n_estimators=7200,
-                           reg_alpha=0.9,
-                           reg_lambda=0.6,
-                           subsample=0.2,
-                           seed=42,
-                           silent=1,
-                           enable_categorical=True)
+fixed_params = {
+    'colsample_bytree': 0.2,
+    'gamma': 0.0,
+    'min_child_weight': 1.5,
+    'reg_alpha': 0.9,
+    'reg_lambda': 0.6,
+    'subsample': 0.2,
+    'seed': 42,
+    'objective': 'reg:squarederror',
+    'enable_categorical': True,
+    'verbosity': 0
+}
 
-regrXGB.fit(train_new, label_df)
-y_pred = regrXGB.predict(test_new)
-y_test = label_df
-print("XGBoost score on testset: ", rmse(y_test, y_pred))
+# Define parameter grid only for top 3 parameters
+param_grid_xgb_top3 = {
+    'max_depth': [4, 6, 8],
+    'learning_rate': [0.01, 0.05, 0.1],
+    'n_estimators': [1000, 3000, 7200]
+}
+
+# Initialize model with fixed parameters
+model = xgb.XGBRegressor(**fixed_params)
+
+# Set up GridSearchCV with param grid
+grid_xgb = GridSearchCV(
+    estimator=model,
+    param_grid=param_grid_xgb_top3,
+    scoring='neg_root_mean_squared_error',
+    cv=5,
+    verbose=2,
+    n_jobs=-1
+)
+
+grid_xgb.fit(train_new, label_df)
+best_xgb_model = grid_xgb.best_estimator_
+y_pred_xgb = best_xgb_model.predict(test_new)
 
 
-# # Lasso Model
-# best_alpha = 0.00099
-# regrL = Lasso(alpha=best_alpha, max_iter=50000)
-# regrL.fit(train_new, label_df)
-# y_pred = regrL.predict(test_new)
-# y_test = label_df
-# print("Lasso score on test set: ", rmse(y_test, y_pred))
+# Lasso Model
+param_grid_lasso = {
+    'alpha': [0.0001, 0.0005, 0.00099, 0.001, 0.01],
+    'max_iter': [10000, 30000, 50000]
+}
+grid_lasso = GridSearchCV(
+    estimator=Lasso(),
+    param_grid=param_grid_lasso,
+    scoring='neg_root_mean_squared_error',
+    cv=5,
+    verbose=2,
+    n_jobs=-1
+)
+grid_lasso.fit(train_new, label_df)
+best_lasso_model = grid_lasso.best_estimator_
+y_pred_lasso = best_lasso_model.predict(test_new)
+
+
+# Ensemble the two models with simple average
+y_pred_ens = (y_pred_xgb + y_pred_lasso) / 2
+print("XGBoost RMSE on test set:", rmse(label_df, y_pred_xgb))
+print("Lasso RMSE on test set:", rmse(label_df, y_pred_lasso))
+print("Score of ensemble of two models with simple average: ",
+      rmse(label_df, y_pred_ens))
